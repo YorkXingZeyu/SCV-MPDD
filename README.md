@@ -34,10 +34,6 @@ network** (WideResNet-50-2). This preserves SCV's central idea — detecting ano
 comparing an image against a generatively-restored *normal* version of itself — while
 removing the dependence on a domain-specific segmenter.
 
-This repository contains the **MPDD generalization** (feature-difference read-out). The
-railway SCV pipeline (FastSAM instance-segmentation comparison) is a separate setup and
-is not included here.
-
 ---
 
 ## Method (feature-difference read-out)
@@ -48,8 +44,7 @@ Given a test image (resized to `R x R`, default `256`):
    The image is split into a grid of `K x K` blocks (`K = R/8`, i.e. an 8×8 grid).
    A checkerboard schedule with stride `S=2` yields `S*S = 4` passes; each pass masks a
    quarter of non-adjacent blocks so the four passes tile the image **exactly once**.
-   Every masked region is inpainted by the category's LoRA model (`strength`, 50 DDPM
-   steps, guidance 3.0) and stitched back into a full reconstruction.
+   Every masked region is inpainted by the category's LoRA model and stitched back into a full reconstruction.
    This is repeated `N` times (default `10`) with different seeds and averaged — pure
    denoising that boosts the signal-to-noise ratio for small defects.
 
