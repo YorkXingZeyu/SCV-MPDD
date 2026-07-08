@@ -58,24 +58,40 @@ scripts, so you do **not** need to install them.
 
 ## 2. Environment setup
 
+We use Python's built-in **`venv`** so nothing beyond a standard Python 3.10
+installation is required (no conda needed).
+
 ```bash
 # 1) clone
 git clone https://github.com/YorkXingZeyu/SCV-MPDD.git
 cd SCV-MPDD
 
-# 2) create a fresh environment (conda shown; venv works too)
-conda create -n scv python=3.10 -y
-conda activate scv
+# 2) create and activate a virtual environment (Python's built-in venv)
+python3.10 -m venv .venv
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
 
-# 3) install PyTorch matching your CUDA (example: CUDA 12.1)
+# 3) install PyTorch matching YOUR CUDA version first.
+#    Example for CUDA 12.1 (see https://pytorch.org for other CUDA versions):
 pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
 
-# 4) install the rest
+# 4) install all remaining dependencies
 pip install -r requirements.txt
 
-# 5) configure accelerate (single-GPU default is fine)
+# 5) configure accelerate once (single-GPU default is fine)
 accelerate config default
 ```
+
+### About `requirements.txt`
+
+`requirements.txt` lists **every Python package the project needs** — the diffusion
+stack (`diffusers`, `transformers`, `accelerate`, `peft`), image/eval tools
+(`opencv-python`, `scikit-learn`, `numpy`, `Pillow`), and `torch`/`torchvision`.
+Step 4 installs them all in one go. (Install `torch`/`torchvision` in step 3 first, so
+that pip picks the build matching your CUDA; `requirements.txt` also pins them as a
+fallback.) The optional flags in the training script that would require
+`bitsandbytes`, `xformers`, or `wandb` are **not used** by the default scripts, so you
+do **not** need to install them.
 
 > **Base model.** The scripts download `stabilityai/stable-diffusion-2-inpainting` from
 > the Hugging Face Hub on first run (~5 GB). It is cached under `~/.cache/huggingface`.
