@@ -1,18 +1,46 @@
-# RealFill-MPDD
+# SCV-MPDD
 
-Anomaly detection on the **MPDD** dataset using per-category **RealFill** fine-tuning
-of Stable Diffusion 2 inpainting, with a full-coverage sliding-window
-reconstruction-and-compare pipeline.
+Generalizing **Structural Consistency Verification (SCV)** to general industrial anomaly
+detection on the **MPDD** dataset.
 
-The core idea: a LoRA-fine-tuned inpainting model, trained **only on normal images**,
-learns to reconstruct the *normal* appearance of each object. At test time we mask and
-reconstruct the entire image; defective regions get "repaired" to look normal, so the
-feature-space difference between the original and the reconstruction lights up exactly
-where the defect is.
+## Background: the SCV paradigm
+
+Our original method, **Structural Consistency Verification (SCV)**, is an unsupervised
+anomaly-detection paradigm designed for **structural-absence anomalies** — missing
+components that leave behind locally *normal-looking* background and therefore produce
+almost no pixel-level residual. Instead of comparing pixels, SCV compares **instance
+segmentation maps**: a region is masked and inpainted by a domain-adapted latent
+diffusion model (a RealFill-style LoRA fine-tuning of Stable Diffusion 2 inpainting,
+trained only on normal images); a fine-tuned segmentation model then extracts structural
+instances from both the original and the inpainted image, and **mismatches between the
+two segmentation maps (via IoU)** reveal anomalies at the semantic level. SCV was
+developed and validated on a railway infrastructure inspection task (detecting missing
+rail assets).
+
+## This repository: generalizing SCV to MPDD
+
+SCV as above presumes a domain with a well-defined structural vocabulary and a
+segmentation model that captures it (rail assets + a fine-tuned FastSAM). Many industrial
+inspection settings lack this: a benchmark such as **MPDD** spans heterogeneous object
+categories with no single instance definition and no per-category segmentation
+supervision.
+
+To apply the framework in this regime, **the training procedure is kept unchanged** — a
+RealFill-style LoRA is fine-tuned on the normal images of each category exactly as in
+SCV, so the inpainter still learns that category's normal appearance. **Only the read-out
+is replaced**: instead of comparing instance segmentations, we contrast the input with
+its inpainted normal reconstruction in the **feature space of a frozen pretrained
+network** (WideResNet-50-2). This preserves SCV's central idea — detecting anomalies by
+comparing an image against a generatively-restored *normal* version of itself — while
+removing the dependence on a domain-specific segmenter.
+
+This repository contains the **MPDD generalization** (feature-difference read-out). The
+railway SCV pipeline (FastSAM instance-segmentation comparison) is a separate setup and
+is not included here.
 
 ---
 
-## Method
+## Method (feature-difference read-out)
 
 Given a test image (resized to `R x R`, default `256`):
 
@@ -29,12 +57,16 @@ Given a test image (resized to `R x R`, default `256`):
    The original and reconstructed images are passed through an ImageNet-pretrained
    **WideResNet-50-2**; per-position squared L2 differences are taken at layers
    `l1`, `l2`, `l3`, upsampled to `R x R`, and Gaussian-blurred (σ=4).
+   The `N` maps are averaged **at the difference-map level** (not by first averaging the
+   reconstructions): reconstruction noise points in random directions across seeds and
+   cancels, while the consistent defect signal survives.
 
 3. **Fixed-scale normalization.**
    Each layer's diff map is divided by a single global scalar — that layer's mean diff
    averaged over the **normal ("good") test images only**. This balances the very
-   different magnitudes across layers while preserving the cross-image signal that
-   image-level scoring depends on.
+   different magnitudes across layers while preserving the cross-image signal (a
+   defective image is globally brighter than a normal one) that image-level scoring
+   depends on.
 
 4. **Anomaly map.**  `M = D_l1' + D_l2' + D_l3'`  (all three layers).
 
