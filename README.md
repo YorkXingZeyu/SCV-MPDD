@@ -77,9 +77,7 @@ Given a test image (resized to `R x R`, default `256`):
 - **CUDA**: 11.8 or 12.1 driver compatible with PyTorch 2.1.
 - **Python**: 3.10.
 
-Everything you need is in `requirements.txt`. The optional flags in the training script
-that would require `bitsandbytes`, `xformers`, or `wandb` are **not used** by the default
-scripts, so you do **not** need to install them.
+Everything you need is in `requirements.txt`. 
 
 ---
 
