@@ -1,0 +1,21 @@
+# data & model artifacts
+data/
+runs/
+*.csv
+*.log
+*.npy
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# HF / torch caches
+hf_cache/
+*.pt
+*.pth
+*.safetensors
+*.bin
