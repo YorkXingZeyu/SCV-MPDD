@@ -36,8 +36,7 @@ Given a test image (resized to `R x R`, default `256`):
    different magnitudes across layers while preserving the cross-image signal that
    image-level scoring depends on.
 
-4. **Anomaly map.**
-   `M = D_l1' + D_l2' + D_l3'`  (all three layers).
+4. **Anomaly map.**  `M = D_l1' + D_l2' + D_l3'`  (all three layers).
 
 5. **Scoring (both metrics from the same map `M`).**
    - **image-AUROC**: image score = mean of the top-1% brightest pixels of `M`.
@@ -45,63 +44,138 @@ Given a test image (resized to `R x R`, default `256`):
 
 ---
 
-## Installation
+## 1. Requirements
 
-```bash
-git clone <this-repo>
-cd RealFill-MPDD
-pip install -r requirements.txt
-accelerate config default        # or configure interactively
-```
+- **OS**: Linux (tested), with an NVIDIA GPU (≈ 12 GB VRAM is enough at resolution 256).
+- **CUDA**: 11.8 or 12.1 driver compatible with PyTorch 2.1.
+- **Python**: 3.10.
 
-The base model `stabilityai/stable-diffusion-2-inpainting` is downloaded from the
-Hugging Face Hub on first use (set `HF_HOME` to cache it; use `HF_HUB_OFFLINE=1` for
-offline runs once cached).
+Everything you need is in `requirements.txt`. The optional flags in the training script
+that would require `bitsandbytes`, `xformers`, or `wandb` are **not used** by the default
+scripts, so you do **not** need to install them.
 
 ---
 
-## Data
+## 2. Environment setup
 
-Place MPDD in **MVTec format** under `data/MPDD`:
+```bash
+# 1) clone
+git clone https://github.com/YorkXingZeyu/SCV-MPDD.git
+cd SCV-MPDD
+
+# 2) create a fresh environment (conda shown; venv works too)
+conda create -n scv python=3.10 -y
+conda activate scv
+
+# 3) install PyTorch matching your CUDA (example: CUDA 12.1)
+pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
+
+# 4) install the rest
+pip install -r requirements.txt
+
+# 5) configure accelerate (single-GPU default is fine)
+accelerate config default
+```
+
+> **Base model.** The scripts download `stabilityai/stable-diffusion-2-inpainting` from
+> the Hugging Face Hub on first run (~5 GB). It is cached under `~/.cache/huggingface`.
+> To use a custom cache location, export `HF_HOME=/path/to/cache` before running.
+> If you are offline **after** the first download, export `HF_HUB_OFFLINE=1`.
+
+Quick sanity check that the environment is OK:
+
+```bash
+python -c "import torch, diffusers, transformers, accelerate, peft, cv2, sklearn; \
+print('torch', torch.__version__, '| cuda', torch.cuda.is_available())"
+```
+
+---
+
+## 3. Dataset
+
+Download MPDD and place it in **MVTec format** under `data/MPDD`:
 
 ```
 data/MPDD/
   <category>/
-    train/good/*.png                     # normal images (training)
-    test/good/*.png                      # normal test images
-    test/<defect_type>/*.png             # defective test images
-    ground_truth/<defect_type>/<name>_mask.png   # pixel masks
+    train/good/*.png                              # normal images (for training)
+    test/good/*.png                               # normal test images
+    test/<defect_type>/*.png                      # defective test images
+    ground_truth/<defect_type>/<name>_mask.png    # pixel masks for defects
 ```
 
-Categories: `connector, metal_plate, bracket_black, bracket_brown, bracket_white, tubes`.
+The six categories are:
+`connector, metal_plate, bracket_black, bracket_brown, bracket_white, tubes`.
+
+You can point the scripts at a different location with `--data_root /your/path`.
 
 ---
 
-## Usage
+## 4. Quick start (all six categories)
 
-### End-to-end (all six categories)
+One command runs the whole pipeline — data prep → LoRA fine-tuning → evaluation:
 
 ```bash
 bash run_all.sh
-# -> results.csv  (category, image_auroc, pixel_auroc, n_good, n_bad, defects)
 ```
 
-### Step by step (single category)
+Results are written to `results.csv`:
+
+```
+category,image_auroc,pixel_auroc,n_good,n_bad,defects
+connector,...
+```
+
+Override any default via environment variables, e.g.:
 
 ```bash
-# 1. build RealFill training data (references + target/mask)
-python prep_data.py connector --data_root ./data/MPDD --runs_dir ./runs --resolution 256
+RES=256 N_RECON=10 STRENGTH=0.3 OUT=results.csv bash run_all.sh
+```
 
-# 2. fine-tune the per-category LoRA
-RES=256 bash train.sh connector          # -> runs/connector/lora/
+---
 
-# 3. evaluate
-python evaluate.py --data_root ./data/MPDD --runs_dir ./runs \
-    --categories connector --resolution 256 --strength 0.3 --n_recon 10 \
+## 5. Step by step (single category)
+
+Use `connector` as an example; swap in any category name.
+
+### 5.1 Prepare RealFill training data
+
+Builds `runs/connector/data/` (reference images + a target image with a center mask):
+
+```bash
+python prep_data.py connector \
+    --data_root ./data/MPDD --runs_dir ./runs --resolution 256
+```
+
+### 5.2 Fine-tune the per-category LoRA
+
+Trains the SD2-inpainting LoRA on that category's normal images.
+Output goes to `runs/connector/lora/` (unet + text_encoder adapters):
+
+```bash
+RES=256 bash train.sh connector
+```
+
+Training defaults (edit in `train.sh` if needed): 1000 steps, batch size 4,
+gradient accumulation 2, fp16, LoRA rank 8. Takes roughly 15–25 min on one modern GPU.
+
+### 5.3 Evaluate
+
+Runs the sliding-window reconstruction + AUROC scoring:
+
+```bash
+python evaluate.py \
+    --data_root ./data/MPDD --runs_dir ./runs \
+    --categories connector \
+    --resolution 256 --strength 0.3 --n_recon 10 \
     --out results.csv
 ```
 
-### Key options (`evaluate.py`)
+`evaluate.py` is **resumable**: a category already present in `--out` is skipped, so you
+can stop and restart without losing progress. Pass several categories comma-separated,
+e.g. `--categories connector,tubes`.
+
+### Evaluation options
 
 | flag | default | meaning |
 |------|---------|---------|
@@ -110,25 +184,41 @@ python evaluate.py --data_root ./data/MPDD --runs_dir ./runs \
 | `--stride` | `2` | checkerboard stride `S` (`S*S` passes) |
 | `--strength` | `0.3` | inpainting strength |
 | `--n_recon` | `10` | reconstructions averaged per image |
-
-`evaluate.py` is resumable: completed categories are skipped if already present in the
-output CSV.
+| `--lora_subdir` | `lora` | subdir under `runs/<cat>/` holding the LoRA |
 
 ---
 
-## Repository layout
+## 6. Repository layout
 
 ```
-RealFill-MPDD/
+SCV-MPDD/
   prep_data.py          # build per-category RealFill training data
   train_realfill.py     # RealFill LoRA fine-tuning (SD2 inpainting)
   train.sh              # training launcher (hyper-parameters)
   evaluate.py           # sliding-window reconstruction + AUROC evaluation
   run_all.sh            # prep -> train -> evaluate over all categories
   requirements.txt
-  data/                 # (place MPDD here; git-ignored)
+  README.md
+  data/                 # place MPDD here (git-ignored)
   runs/                 # prepared data + finetuned models + results (git-ignored)
 ```
+
+---
+
+## 7. Troubleshooting
+
+- **`AssertionError: no images found in .../train/good`** — the dataset path is wrong.
+  Check `--data_root` and that the MVTec-format folders exist.
+- **`missing finetuned model: runs/<cat>/lora`** — you ran `evaluate.py` before training.
+  Run `prep_data.py` then `train.sh` for that category first.
+- **CUDA out of memory during training** — lower `--train_batch_size` in `train.sh`
+  (it already uses gradient checkpointing + fp16), or keep resolution at 256.
+- **`accelerate` asks questions / errors on launch** — run `accelerate config default`
+  once (single GPU, no distributed, no fp16 prompt needed since `train.sh` sets it).
+- **First run hangs at model download** — it is fetching the ~5 GB base model from HF.
+  Let it finish once; subsequent runs use the cache.
+- **`ImportError: bitsandbytes/xformers/wandb`** — you enabled an optional flag. The
+  default scripts don't need these; remove the flag or `pip install` the package.
 
 ---
 
