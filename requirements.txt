@@ -9,11 +9,12 @@ diffusers==0.20.1        # Stable Diffusion 2 inpainting pipeline
 transformers==4.36.0     # CLIP text encoder / tokenizer
 accelerate==0.23.0       # training launcher used by train.sh
 peft==0.5.0              # LoRA adapters
+huggingface_hub==0.19.4  # keep cached_download API required by diffusers 0.20.1
 
 # === Evaluation & image ops ===
-opencv-python>=4.8       # Gaussian blur, color ops
+opencv-python==4.9.0.80  # Gaussian blur, color ops; avoid untested OpenCV 5.x
 scikit-learn>=1.3        # roc_auc_score
-numpy>=1.24
+numpy==1.26.4            # PyTorch 2.1-compatible NumPy 1.x
 Pillow>=10.0             # image I/O
 
 # Note: bitsandbytes / xformers / wandb are OPTIONAL and NOT required by the
